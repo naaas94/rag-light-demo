@@ -1,0 +1,2 @@
+{"question": "What is the architecture?", "expected_ids": ["stable_id_placeholder"], "answer": "Hybrid retrieval with RRF."}
+{"question": "How are IDs generated?", "expected_ids": [], "answer": "Deterministic SHA1 hashing."}

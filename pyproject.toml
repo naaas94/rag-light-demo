@@ -1,0 +1,33 @@
+[project]
+name = "rag-light-demo"
+version = "0.1.0"
+description = "A portfolio-grade, local-first RAG system PoC."
+authors = [
+    {name = "Alejandro Garay", email = "aleja@example.com"},
+]
+dependencies = [
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "rank_bm25>=0.2.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "ollama>=0.1.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.66.0",
+    "python-multipart>=0.0.9",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0"
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --durations=5"

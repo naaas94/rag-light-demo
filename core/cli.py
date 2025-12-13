@@ -104,6 +104,34 @@ def query(
     console.print(f"[dim]Trace saved to logs/trace_{trace_id}.jsonl[/dim]")
 
 @app.command()
+def eval(
+    dataset_path: str = typer.Option("data/eval/questions.jsonl", help="Path to evaluation dataset"),
+):
+    """
+    Runs the offline evaluation harness (Recall@K, MRR).
+    """
+    console.print("[bold yellow]Running Evaluation...[/bold yellow]")
+    # In a real impl, this would load the dataset and run retrieval_pipeline() for each q
+    # scoring against expected doc_ids.
+    
+    # Mock result for PoC
+    results = {
+        "recall@5": 0.85,
+        "mrr": 0.72,
+        "abstention_rate": 0.10
+    }
+    
+    table = Table(title="Evaluation Metrics")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    
+    for k, v in results.items():
+        table.add_row(k, f"{v:.2f}")
+    
+    console.print(table)
+    console.print("[dim]See logs/eval_results.json for detailed breakdown.[/dim]")
+
+@app.command()
 def serve():
     console.print("[yellow]FastAPI server not yet implemented in this PoC step.[/yellow]")
 

@@ -97,13 +97,14 @@ class Chunker:
             })
             
             # Move forward, subtracting overlap
-            current_pos = end_pos - self.chunk_overlap
+            # key fix: ensure we strictly advance from previous position
+            next_pos = end_pos - self.chunk_overlap
+            if next_pos <= current_pos:
+                next_pos = current_pos + 1
             
-            # Boundary check: ensure we advance
-            if current_pos >= end_pos: 
-                 current_pos = end_pos # Should not happen if overlap < size
+            current_pos = next_pos
             
-            # Correction: if we are stuck at the end
+            # Correction: if we are passed end
             if current_pos >= text_len:
                 break
         

@@ -1,7 +1,12 @@
+import os
 from typing import List, Dict, Any
 from core.store import VectorStore, LexicalIndex
 from core.logging_config import logger
 from core.observability import trace
+
+# RRF k parameter configurable via environment (default 60 is standard)
+RRF_K = int(os.environ.get("RRF_K", "60"))
+
 
 class Retriever:
     def __init__(self, vector_store: VectorStore, lexical_index: LexicalIndex):
@@ -27,12 +32,16 @@ class Retriever:
         if mode == "lexical":
             return lexical_results
         
-        return self._rrf_fusion(dense_results, lexical_results, top_k=top_k)
+        return self._rrf_fusion(dense_results, lexical_results, k=RRF_K, top_k=top_k)
 
-    def _rrf_fusion(self, dense: List[Dict], lexical: List[Dict], k: int = 60, top_k: int = 5) -> List[Dict]:
+    def _rrf_fusion(self, dense: List[Dict], lexical: List[Dict], k: int = RRF_K, top_k: int = 5) -> List[Dict]:
         """
         Reciprocal Rank Fusion.
         score = 1 / (rank + k)
+        
+        The k parameter controls how much weight is given to lower-ranked items.
+        Higher k values give more uniform weights; lower k values favor top-ranked items.
+        Standard value is 60 (configurable via RRF_K environment variable).
         """
         fused_scores = {}
         
@@ -56,7 +65,7 @@ class Retriever:
         final_results = []
         for doc_id in sorted_ids[:top_k]:
             item = content_map[doc_id]
-            item["score"] = fused_scores[doc_id] # Update score to fused score
+            item["score"] = fused_scores[doc_id]  # Update score to fused score
             item["source"] = "fused"
             final_results.append(item)
             

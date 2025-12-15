@@ -10,3 +10,6 @@ chroma_db/
 bm25_index.pkl
 logs/
 .pytest_cache/
+.cursor/debug.log
+rag_system.log
+SECURITY_ARCHITECTURE_REVIEW.md

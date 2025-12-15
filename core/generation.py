@@ -1,3 +1,12 @@
+"""
+Generator with context budget controls and persistent Ollama client.
+
+Optimizations:
+- Ollama client created once in __init__ and reused
+- Context budget controls to prevent prompt bloat
+- Per-chunk truncation to cap context size
+"""
+
 import os
 import time
 import ollama
@@ -9,35 +18,99 @@ from core.observability import trace
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "120"))  # seconds
 OLLAMA_MAX_RETRIES = int(os.environ.get("OLLAMA_MAX_RETRIES", "3"))
 
+# Context budget controls (new)
+MAX_CONTEXT_CHARS = int(os.environ.get("MAX_CONTEXT_CHARS", "8000"))  # Total context budget
+MAX_CHUNK_CHARS = int(os.environ.get("MAX_CHUNK_CHARS", "1500"))  # Per-chunk limit
+
 
 class Generator:
     def __init__(self, model_name: str = "mistral"):
         self.model_name = model_name
         self.timeout = OLLAMA_TIMEOUT
         self.max_retries = OLLAMA_MAX_RETRIES
+        
+        # Create client once and reuse (optimization: connection reuse)
+        self.client = ollama.Client(timeout=self.timeout)
+        logger.info(f"Initialized Generator with model={model_name}, timeout={self.timeout}s")
+
+    def _truncate_chunk(self, text: str, max_chars: int = MAX_CHUNK_CHARS) -> str:
+        """Truncate a chunk to max_chars, preserving word boundaries."""
+        if len(text) <= max_chars:
+            return text
+        
+        # Find last space before limit to avoid cutting words
+        truncated = text[:max_chars]
+        last_space = truncated.rfind(" ")
+        if last_space > max_chars * 0.7:  # Only use if reasonable position
+            truncated = truncated[:last_space]
+        
+        return truncated.rstrip() + "..."
+
+    def _build_context(self, context: List[Dict[str, Any]]) -> str:
+        """
+        Build context string with budget controls.
+        
+        Strategy:
+        1. Truncate each chunk to MAX_CHUNK_CHARS
+        2. Add chunks in order until MAX_CONTEXT_CHARS reached
+        3. Preserve source attribution
+        """
+        context_parts = []
+        total_chars = 0
+        included_count = 0
+        
+        for c in context:
+            chunk_text = c.get("text", "")
+            chunk_id = c.get("id", "unknown")[:16]  # Shortened ID for readability
+            
+            # Get source info for better citations
+            metadata = c.get("metadata", {})
+            source_file = metadata.get("filename", "")
+            
+            # Truncate individual chunk
+            truncated = self._truncate_chunk(chunk_text, MAX_CHUNK_CHARS)
+            
+            # Build formatted chunk
+            if source_file:
+                formatted = f"[Source: {source_file} | {chunk_id}]\n{truncated}"
+            else:
+                formatted = f"[Source: {chunk_id}]\n{truncated}"
+            
+            # Check budget
+            if total_chars + len(formatted) > MAX_CONTEXT_CHARS:
+                # Log if we're dropping chunks
+                remaining = len(context) - included_count
+                if remaining > 0:
+                    logger.info(
+                        f"Context budget reached ({MAX_CONTEXT_CHARS} chars). "
+                        f"Included {included_count}/{len(context)} chunks, dropped {remaining}."
+                    )
+                break
+            
+            context_parts.append(formatted)
+            total_chars += len(formatted) + 2  # +2 for separator
+            included_count += 1
+        
+        return "\n\n".join(context_parts)
 
     def _generate_internal(self, query: str, context: List[Dict[str, Any]]) -> str:
         """Internal generation method that makes the actual Ollama call."""
-        context_text = "\n\n".join([
-            f"[Source: {c['id']}]\n{c['text']}" 
-            for c in context
-        ])
+        # Build context with budget controls
+        context_text = self._build_context(context)
 
         system_prompt = (
             "You are a precise technical assistant. Answer the question using ONLY the provided context. "
             "If the answer is not in the context, say 'I cannot answer this based on the provided documents.' "
-            "Cite your sources using the format [Source: chunk_id]. "
+            "Cite your sources using the format [Source: filename | chunk_id]. "
             "Do not hallucinate external information."
         )
 
         user_prompt = f"Context:\n{context_text}\n\nQuestion: {query}"
 
-        logger.info(f"Sending prompt to Ollama ({self.model_name})...")
+        logger.info(f"Sending prompt to Ollama ({self.model_name}), context: {len(context_text)} chars")
         
-        # Create client with timeout configuration
-        client = ollama.Client(timeout=self.timeout)
-        
-        response = client.chat(
+        # Reuse persistent client (optimization)
+        response = self.client.chat(
             model=self.model_name,
             messages=[
                 {'role': 'system', 'content': system_prompt},

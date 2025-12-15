@@ -36,7 +36,16 @@ class VectorStore:
         texts = [c.text for c in chunks]
         embeddings = self.embedder.embed(texts)
         ids = [c.id for c in chunks]
-        metadatas = [{"doc_id": c.doc_id, **c.metadata} for c in chunks]
+        # Persist chunk offsets so CLI can display reliable spans and you can debug chunk boundaries.
+        metadatas = [
+            {
+                "doc_id": c.doc_id,
+                "start_char": c.start_char,
+                "end_char": c.end_char,
+                **c.metadata,
+            }
+            for c in chunks
+        ]
 
         self.collection.upsert(
             ids=ids,
@@ -47,7 +56,8 @@ class VectorStore:
         logger.info(f"Upserted {len(chunks)} vectors to ChromaDB.")
 
     def query(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        query_embedding = self.embedder.embed([query_text])[0]
+        # Use cached embed_query for single query embedding
+        query_embedding = self.embedder.embed_query(query_text)
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k
@@ -196,6 +206,10 @@ class LexicalIndex:
                 "id": chunk.id,
                 "score": scores[i],
                 "text": chunk.text,
-                "metadata": chunk.metadata
+                "metadata": {
+                    **chunk.metadata,
+                    "start_char": chunk.start_char,
+                    "end_char": chunk.end_char,
+                },
             })
         return hits

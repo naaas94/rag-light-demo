@@ -1,3 +1,9 @@
+"""
+CLI interface for the RAG system.
+
+Optimized to use RAGService singleton for shared resources.
+"""
+
 import typer
 import os
 import time
@@ -9,7 +15,7 @@ from pydantic import ValidationError
 
 from core.ingest import Loader, Chunker
 from core.store import VectorStore, LexicalIndex
-from core.retrieval import Retriever
+from core.service import RAGService
 from core.generation import Generator
 from core.logging_config import logger
 from core.observability import telemetry
@@ -46,6 +52,9 @@ def ingest(
             os.remove("bm25_index.pkl")
             console.print("[yellow]Removed BM25 index[/yellow]")
         console.print("[bold]Index reset complete[/bold]")
+        
+        # Reset the RAGService singleton to pick up fresh indices
+        RAGService.reset_instance()
     
     start_time = time.time()
     
@@ -61,7 +70,7 @@ def ingest(
     chunks = chunker.chunk(docs)
     
     # 3. Index
-    # Initialize store (this will create persistence dir)
+    # Use fresh instances for ingest to avoid stale data issues
     vector_store = VectorStore()
     lexical_index = LexicalIndex()
     
@@ -71,6 +80,10 @@ def ingest(
     elapsed = time.time() - start_time
     console.print(f"[bold green]Ingestion complete in {elapsed:.2f}s[/bold green]")
     console.print(f"Docs: {len(docs)}, Chunks: {len(chunks)}")
+    
+    # Reset singleton so next query picks up new data
+    RAGService.reset_instance()
+    console.print("[dim]RAGService cache cleared for fresh data[/dim]")
 
 
 @app.command()
@@ -82,6 +95,8 @@ def query(
 ):
     """
     Queries the RAG system.
+    
+    Uses shared RAGService for optimized performance (resources loaded once).
     """
     # Validate inputs
     try:
@@ -95,11 +110,10 @@ def query(
     
     start_time = time.time()
     
-    # 1. Retrieve
+    # Use shared RAGService (optimization: resources loaded once)
     try:
-        vector_store = VectorStore()
-        lexical_index = LexicalIndex()
-        retriever = Retriever(vector_store, lexical_index)
+        rag = RAGService.get_instance()
+        retriever = rag.retriever
     except Exception as e:
         console.print(f"[red]Failed to initialize retriever: {e}[/red]")
         console.print("[yellow]Hint: Run 'ingest' first to create the indices.[/yellow]")
@@ -107,33 +121,55 @@ def query(
     
     console.print(f"[bold blue]Question:[/bold blue] {validated.question}")
     with console.status("[bold green]Retrieving...[/bold green]"):
+        retrieve_start = time.time()
         context = retriever.retrieve(validated.question, top_k=validated.top_k, mode=validated.mode)
+        retrieve_time = time.time() - retrieve_start
     
     # Show retrieved context (Telemetry/Observability Lite)
-    table = Table(title=f"Retrieved Context (Mode: {validated.mode})")
+    def _format_snippet(text: str, start_char: object, max_len: int = 120) -> str:
+        # Collapse newlines / tabs / repeated spaces so the table rendering is stable.
+        compact = " ".join((text or "").split())
+        # Mark chunks that don't start at the beginning of the document (often mid-sentence due to overlap/windowing).
+        if isinstance(start_char, int) and start_char > 0 and compact:
+            compact = "__" + compact
+        if len(compact) <= max_len:
+            return compact
+        return compact[:max_len].rstrip() + "..."
+
+    table = Table(title=f"Retrieved Context (Mode: {validated.mode}) [{retrieve_time:.2f}s]")
     table.add_column("Rank", style="cyan", width=5)
+    table.add_column("Chunk", style="dim", width=10)
     table.add_column("Source", style="magenta")
+    table.add_column("Span", style="dim", width=13)
     table.add_column("Score", style="green")
     table.add_column("Snippet", style="white")
     
     for i, c in enumerate(context):
+        md = c.get("metadata") or {}
+        start = md.get("start_char")
+        end = md.get("end_char")
+        span = f"{start}-{end}" if isinstance(start, int) and isinstance(end, int) else "-"
         table.add_row(
             str(i + 1), 
+            (c.get("id") or "")[:8],
             c['metadata'].get('filename', 'unknown'), 
+            span,
             f"{c.get('score', 0):.4f}", 
-            c['text'][:100] + "..."
+            _format_snippet(c.get("text", ""), start)
         )
     console.print(table)
 
-    # 2. Generate
-    generator = Generator(model_name=validated.model)
+    # 2. Generate (use cached generator from service)
+    generator = rag.get_generator(model_name=validated.model)
     with console.status(f"[bold green]Generating Answer ({validated.model})...[/bold green]"):
+        generate_start = time.time()
         answer = generator.generate(validated.question, context)
+        generate_time = time.time() - generate_start
     
-    console.print(Panel(answer, title="[bold yellow]Answer[/bold yellow]"))
+    console.print(Panel(answer, title=f"[bold yellow]Answer[/bold yellow] [{generate_time:.2f}s]"))
     
     total_time = time.time() - start_time
-    console.print(f"[dim]Total time: {total_time:.2f}s[/dim]")
+    console.print(f"[dim]Total time: {total_time:.2f}s (retrieve: {retrieve_time:.2f}s, generate: {generate_time:.2f}s)[/dim]")
     
     telemetry.flush()
     console.print(f"[dim]Trace saved to logs/trace_{trace_id}.jsonl[/dim]")
@@ -146,6 +182,8 @@ def eval(
 ):
     """
     Runs the offline evaluation harness (HitRate@K) using phrase matching.
+    
+    Uses shared RAGService for optimized performance.
     """
     import json
     
@@ -160,11 +198,10 @@ def eval(
 
     console.print(Panel(f"[bold yellow]Running Evaluation on {dataset_path}[/bold yellow]"))
     
-    # Initialize Retriever
+    # Use shared RAGService (optimization)
     try:
-        vector_store = VectorStore()
-        lexical_index = LexicalIndex()
-        retriever = Retriever(vector_store, lexical_index)
+        rag = RAGService.get_instance()
+        retriever = rag.retriever
     except Exception as e:
         console.print(f"[red]Failed to initialize retriever: {e}[/red]")
         raise typer.Exit(1)
@@ -182,6 +219,8 @@ def eval(
     table.add_column("Question", style="cyan")
     table.add_column("Expected", style="magenta")
     table.add_column("Found?", style="green")
+    
+    eval_start = time.time()
     
     for q_item in questions:
         query_text = q_item["question"]
@@ -210,11 +249,17 @@ def eval(
             status = "[red]NO[/red]"
             
         table.add_row(query_text, str(expected_phrases), status)
+    
+    eval_time = time.time() - eval_start
         
     console.print(table)
     
     hit_rate = hits / total if total > 0 else 0
-    console.print(Panel(f"[bold]Overall Hit Rate@{top_k}: {hit_rate:.2%}[/bold]", style="blue"))
+    console.print(Panel(
+        f"[bold]Overall Hit Rate@{top_k}: {hit_rate:.2%}[/bold]\n"
+        f"[dim]Evaluated {total} questions in {eval_time:.2f}s ({eval_time/max(total,1):.2f}s/query)[/dim]",
+        style="blue"
+    ))
 
 
 @app.command()
@@ -274,6 +319,18 @@ def check():
         console.print("[red]✗ Could not connect to Ollama (Is 'ollama serve' running?)[/red]")
         all_ok = False
     
+    # 5. Check Cache Status
+    try:
+        from core.embedding import Embedder
+        cache_stats = Embedder.get_cache_stats()
+        console.print("[green]✓ Embedding cache configured[/green]")
+        console.print(f"  [dim]Models loaded: {cache_stats.get('models_loaded', [])}")
+        console.print(f"  [dim]Disk cache: {'enabled' if cache_stats.get('disk_cache_enabled') else 'disabled'}[/dim]")
+        if cache_stats.get('disk_cache_size') is not None:
+            console.print(f"  [dim]Cache entries: {cache_stats.get('disk_cache_size', 0)}[/dim]")
+    except Exception as e:
+        console.print(f"  [yellow]Could not check cache: {e}[/yellow]")
+    
     # Summary
     if all_ok:
         console.print("\n[bold green]All checks passed![/bold green]")
@@ -284,6 +341,71 @@ def check():
 @app.command()
 def serve():
     console.print("[yellow]FastAPI server not yet implemented in this PoC step.[/yellow]")
+
+
+@app.command()
+def cache_stats():
+    """
+    Display cache statistics for performance monitoring.
+    """
+    console.print(Panel("[bold]Cache Statistics[/bold]"))
+    
+    try:
+        from core.embedding import Embedder
+        stats = Embedder.get_cache_stats()
+        
+        table = Table(title="Embedding Cache")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Models Loaded", str(stats.get("models_loaded", [])))
+        table.add_row("Disk Cache Enabled", "Yes" if stats.get("disk_cache_enabled") else "No")
+        
+        if stats.get("disk_cache_size") is not None:
+            table.add_row("Disk Cache Entries", str(stats.get("disk_cache_size", 0)))
+        if stats.get("disk_cache_volume") is not None:
+            volume_mb = stats.get("disk_cache_volume", 0) / (1024 * 1024)
+            table.add_row("Disk Cache Size", f"{volume_mb:.2f} MB")
+        
+        console.print(table)
+        
+    except Exception as e:
+        console.print(f"[red]Error getting cache stats: {e}[/red]")
+    
+    # RAGService status
+    try:
+        from core.service import RAGService
+        if RAGService._instance is not None:
+            console.print("\n[green]✓ RAGService singleton is active[/green]")
+            console.print(f"  [dim]Generators loaded: {list(RAGService._instance._generators.keys())}[/dim]")
+            console.print(f"  [dim]BM25 chunks: {len(RAGService._instance.lexical_index.chunk_map)}[/dim]")
+        else:
+            console.print("\n[yellow]! RAGService not yet initialized (will be on first query)[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error checking RAGService: {e}[/red]")
+
+
+@app.command()
+def clear_cache():
+    """
+    Clear all caches (embedding cache and RAGService singleton).
+    """
+    console.print(Panel("[bold]Clearing Caches[/bold]"))
+    
+    try:
+        from core.embedding import Embedder
+        Embedder.clear_cache()
+        console.print("[green]✓ Embedding cache cleared[/green]")
+    except Exception as e:
+        console.print(f"[red]Error clearing embedding cache: {e}[/red]")
+    
+    try:
+        RAGService.reset_instance()
+        console.print("[green]✓ RAGService singleton reset[/green]")
+    except Exception as e:
+        console.print(f"[red]Error resetting RAGService: {e}[/red]")
+    
+    console.print("[bold green]Cache cleared successfully[/bold green]")
 
 
 if __name__ == "__main__":

@@ -13,3 +13,6 @@ logs/
 .cursor/debug.log
 rag_system.log
 SECURITY_ARCHITECTURE_REVIEW.md
+remediation_status.md
+security_remediation_tracker.md
+runtime_optimization_and_caching_review.md

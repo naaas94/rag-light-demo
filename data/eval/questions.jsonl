@@ -1,2 +1,3 @@
-{"question": "What is the architecture?", "expected_ids": ["stable_id_placeholder"], "answer": "Hybrid retrieval with RRF."}
-{"question": "How are IDs generated?", "expected_ids": [], "answer": "Deterministic SHA1 hashing."}
+{"question": "What retrieval method does the system use?", "expected_phrases": ["Hybrid", "RRF", "Semantic"]}
+{"question": "Which vector database is used?", "expected_phrases": ["ChromaDB"]}
+{"question": "What is the core tension described in the philosophy?", "expected_phrases": ["Local Demo", "Production Rigor"]}

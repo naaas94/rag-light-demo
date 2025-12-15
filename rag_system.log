@@ -8,3 +8,25 @@ Sending prompt to Ollama (mistral)...
 PyTorch version 2.7.1 available.
 Duckdb version 1.4.2 available.
 HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+PyTorch version 2.7.1 available.
+Duckdb version 1.4.2 available.
+Scanning data/corpus for ['.md', '.txt'] files...
+Loaded 1 documents.
+PyTorch version 2.7.1 available.
+Duckdb version 1.4.2 available.
+Scanning data/corpus for ['.md', '.txt'] files...
+Loaded 1 documents.
+Generated 1 chunks from 1 documents.
+Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+Use pytorch device_name: cpu
+Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+Upserted 1 vectors to ChromaDB.
+Built and saved BM25 index to bm25_index.pkl
+PyTorch version 2.7.1 available.
+Duckdb version 1.4.2 available.
+PyTorch version 2.7.1 available.
+Duckdb version 1.4.2 available.
+Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+Use pytorch device_name: cpu
+Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+Loaded BM25 index.

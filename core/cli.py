@@ -106,30 +106,110 @@ def query(
 @app.command()
 def eval(
     dataset_path: str = typer.Option("data/eval/questions.jsonl", help="Path to evaluation dataset"),
+    top_k: int = typer.Option(5, help="Number of chunks to retrieve per question")
 ):
     """
-    Runs the offline evaluation harness (Recall@K, MRR).
+    Runs the offline evaluation harness (HitRate@K) using phrase matching.
     """
-    console.print("[bold yellow]Running Evaluation...[/bold yellow]")
-    # In a real impl, this would load the dataset and run retrieval_pipeline() for each q
-    # scoring against expected doc_ids.
+    import json
     
-    # Mock result for PoC
-    results = {
-        "recall@5": 0.85,
-        "mrr": 0.72,
-        "abstention_rate": 0.10
-    }
+    if not os.path.exists(dataset_path):
+        console.print(f"[red]Dataset not found at {dataset_path}[/red]")
+        return
+
+    console.print(Panel(f"[bold yellow]Running Evaluation on {dataset_path}[/bold yellow]"))
     
-    table = Table(title="Evaluation Metrics")
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", style="green")
+    # Initialize Retriever
+    try:
+        vector_store = VectorStore()
+        lexical_index = LexicalIndex()
+        retriever = Retriever(vector_store, lexical_index)
+    except Exception as e:
+        console.print(f"[red]Failed to initialize retriever: {e}[/red]")
+        return
     
-    for k, v in results.items():
-        table.add_row(k, f"{v:.2f}")
+    questions = []
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                questions.append(json.loads(line))
     
+    hits = 0
+    total = len(questions)
+    
+    table = Table(title=f"Evaluation Results (k={top_k})")
+    table.add_column("Question", style="cyan")
+    table.add_column("Expected", style="magenta")
+    table.add_column("Found?", style="green")
+    
+    for q_item in questions:
+        query = q_item["question"]
+        expected_phrases = [p.lower() for p in q_item["expected_phrases"]]
+        
+        # Retrieve
+        results = retriever.retrieve(query, top_k=top_k)
+        
+        # Check for Hit
+        # A hit is if ANY retrieved chunk contains ANY of the expected phrases
+        found = False
+        retrieved_texts = [r["text"].lower() for r in results]
+        
+        for phrase in expected_phrases:
+            for text in retrieved_texts:
+                if phrase in text:
+                    found = True
+                    break
+            if found: break
+        
+        if found:
+            hits += 1
+            status = "[bold green]YES[/bold green]"
+        else:
+            status = "[red]NO[/red]"
+            
+        table.add_row(query, str(expected_phrases), status)
+        
     console.print(table)
-    console.print("[dim]See logs/eval_results.json for detailed breakdown.[/dim]")
+    
+    hit_rate = hits / total if total > 0 else 0
+    console.print(Panel(f"[bold]Overall Hit Rate@{top_k}: {hit_rate:.2%}[/bold]", style="blue"))
+
+@app.command()
+def check():
+    """
+    Sanity checks the system state (Disk, DB, Models).
+    """
+    console.print(Panel("[bold]Running System Sanity Check[/bold]"))
+    
+    # 1. Check Data Directory
+    if os.path.exists("data/corpus"):
+        console.print("[green]✓ Data directory exists[/green]")
+    else:
+        console.print("[red]✗ Data directory missing (data/corpus)[/red]")
+
+    # 2. Check Database
+    if os.path.exists("chroma_db"):
+        console.print("[green]✓ ChromaDB directory exists[/green]")
+    else:
+        console.print("[yellow]! ChromaDB not found (Run 'ingest' first)[/yellow]")
+
+    # 3. Check BM25
+    if os.path.exists("bm25_index.pkl"):
+        console.print("[green]✓ BM25 Index exists[/green]")
+    else:
+        console.print("[yellow]! BM25 Index not found[/yellow]")
+
+    # 4. Check Ollama Connectivity
+    try:
+        import requests
+        # Ollama default port 11434
+        resp = requests.get("http://localhost:11434/")
+        if resp.status_code == 200:
+            console.print("[green]✓ Ollama is running[/green]")
+        else:
+             console.print(f"[red]✗ Ollama returned status {resp.status_code}[/red]")
+    except Exception:
+        console.print("[red]✗ Could not connect to Ollama (Is 'ollama serve' running?)[/red]")
 
 @app.command()
 def serve():

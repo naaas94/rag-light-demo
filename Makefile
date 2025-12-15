@@ -9,7 +9,7 @@ dev-install:
 	pip install pytest pytest-cov
 
 test:
-	pytest tests/
+	python -m pytest tests/
 
 clean:
 	rm -rf dist build *.egg-info

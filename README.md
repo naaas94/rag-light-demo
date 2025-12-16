@@ -8,7 +8,7 @@ This repository demonstrates a **Local-First RAG System** designed with systems 
 1.  **Stable Identity**: Documents and chunks have deterministic SHA256 IDs (idempotent ingestion).
 2.  **Hybrid Retrieval**: Uses Reciprocal Rank Fusion (RRF) to combine Dense (Vector) and Lexical (BM25) signals.
 3.  **Security Hardened**: HMAC-signed BM25 indices, input validation, resource limits, and timeout/retry logic.
-4.  **Performance Optimized**: Multi-level caching (in-memory LRU + disk-backed) for embeddings, persistent resource reuse, and context budget controls.
+4.  **Performance Optimized**: Multi-level caching (bounded in-memory + disk-backed) for query embeddings, persistent resource reuse, and context budget controls.
 5.  **Observability**: Every request emits a structured trace (`logs/*.jsonl`).
 6.  **No Cloud**: Runs 100% offline using `Ollama` and `ChromaDB` (local).
 
@@ -57,6 +57,10 @@ Options:
 - `--top-k N`: Number of chunks to retrieve (default: 5)
 - `--mode {dense|lexical|hybrid}`: Retrieval mode (default: hybrid)
 - `--model MODEL`: Ollama model name (default: mistral)
+
+Note on the retrieval table:
+- Snippets prefixed with `__` indicate the chunk starts mid-document (a normal artifact of sliding-window chunking).
+- The `Span` column shows `start_char-end_char` offsets so you can sanity-check chunk boundaries.
 
 **3. Evaluate**
 Run the offline retrieval metric (HitRate@K) against the ground truth dataset:
@@ -136,12 +140,12 @@ The system implements several runtime optimizations to reduce query latency:
 
 *   **Resource Reuse**: The `RAGService` singleton maintains long-lived instances of VectorStore, LexicalIndex, and Generator, eliminating repeated initialization overhead (especially BM25 index loads).
 *   **Query Embedding Cache**: Two-level caching strategy:
-    *   **L1 (In-Memory)**: Fast LRU cache for hot queries within a session.
+    *   **L1 (In-Memory)**: Fast bounded cache for hot queries within a session.
     *   **L2 (Disk)**: Persistent cache across CLI invocations using `diskcache`, dramatically speeding up repeated queries.
 *   **Context Budget Management**: Automatic truncation of chunks and context to prevent prompt bloat, reducing LLM latency and timeout risk.
 *   **Connection Reuse**: Ollama client is created once per Generator instance and reused, improving connection efficiency.
 
-**Measured Impact**: Repeated queries show 3x faster retrieval latency (0.49s → 0.15s) due to embedding cache hits. The first query initializes all resources; subsequent queries benefit from cached embeddings and persistent resource reuse.
+**Practical Impact**: The first query initializes resources; repeated queries typically get faster due to embedding cache hits and resource reuse. Use `python -m core.cli cache-stats` to confirm cache state on your machine.
 
 ## Project Structure
 

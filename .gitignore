@@ -14,5 +14,6 @@ logs/
 rag_system.log
 SECURITY_ARCHITECTURE_REVIEW.md
 REMEDIATION_STATUS.md
-security_remediation_tracker.md
-runtime_optimization_and_caching_review.md
+REPORT_TO_CLIENT.md
+RUNTIME_OPTIMIZATION_AND_CACHING_REVIEW.md
+SECURITY_REMEDIATION_TRACKER.md

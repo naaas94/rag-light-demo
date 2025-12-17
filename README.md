@@ -82,7 +82,7 @@ python -m core.cli clear-cache
 
 We explicitly distinguish between production-ready modules and PoC shortcuts:
 
-### ✅ Implemented (Production Pattern)
+### Implemented (Production Pattern)
 *   **Stable Identity**: Documents and chunks have deterministic SHA256 IDs (idempotent ingestion).
 *   **Hybrid Retrieval**: Full implementation of Reciprocal Rank Fusion (RRF) combining ChromaDB (Dense) and BM25 (Lexical).
 *   **Security Hardening**: HMAC-signed BM25 indices prevent tampering, input validation via Pydantic, file size/chunk limits, and proper distance→similarity conversion.
@@ -95,13 +95,13 @@ We explicitly distinguish between production-ready modules and PoC shortcuts:
 *   **Evaluation Harness**: functional `eval` command calculating HitRate@K using exact phrase matching against `data/eval/questions.jsonl`.
 *   **Observability**: Structured JSONL logging with trace IDs for every request, with cache statistics monitoring.
 
-### ⚠️ Hardcoded / Simplified
+### Hardcoded / Simplified
 *   **Chunking Strategy**: Uses a fixed sliding window (500 chars / 50 overlap). Does not use semantic boundary detection.
 *   **Embedding Model**: Defaults to `all-MiniLM-L6-v2` for local speed (configurable via code).
 *   **Tokenization**: BM25 uses regex-based word tokenization (improved from naive split, but not full NLP pipeline).
 *   **Evaluation Data**: rigorous but small static dataset (`data/eval/questions.jsonl`).
 
-### 🚧 Deferred (Next Steps)
+### Deferred (Next Steps)
 *   **FastAPI / HTTP Server**: The `serve` command is currently a stub.
 *   **Async Ingestion**: Ingestion is synchronous; a production version would use a Celery/Queuing system.
 *   **Multi-Tenancy**: The current database assumes a single tenant context.

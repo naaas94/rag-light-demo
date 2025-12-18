@@ -3,7 +3,7 @@ name = "rag-light-demo"
 version = "0.1.0"
 description = "A portfolio-grade, local-first RAG system PoC."
 authors = [
-    {name = "Alejandro Garay", email = "aleja@example.com"},
+    {name = "Alejandro Garay", email = "alejandroa.garay.ag@gmail.com"},
 ]
 dependencies = [
     "chromadb>=0.4.0",
